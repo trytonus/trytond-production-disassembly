@@ -1,0 +1,6 @@
+<data>
+    <xpath expr="//field[@name='bom']" position="after">
+        <label name="disassembly"/>
+        <field name="disassembly"/>
+    </xpath>
+</data>
