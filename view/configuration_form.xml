@@ -1,0 +1,6 @@
+<data>
+    <xpath expr="//field[@name='production_sequence']" position="after">
+        <label name="disassembly_difference_product"/>
+        <field name="disassembly_difference_product"/>
+    </xpath>
+</data>

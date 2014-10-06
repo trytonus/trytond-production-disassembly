@@ -6,6 +6,7 @@
     :license: BSD, see LICENSE for more details.
 """
 from decimal import Decimal
+from collections import namedtuple
 
 from trytond.model import fields
 from trytond.pool import Pool, PoolMeta
@@ -14,7 +15,28 @@ from trytond.modules.production import production
 
 
 __metaclass__ = PoolMeta
+__all__ = ['Production', 'Configuration']
 BOM_CHANGES = production.BOM_CHANGES + ['disassembly']
+
+
+class Configuration:
+    __name__ = 'production.configuration'
+
+    disassembly_difference_product = fields.Many2One(
+        'product.product', 'Disassembly Difference Product'
+    )
+
+    @classmethod
+    def get_disassembly_difference_product(cls):
+        product = cls(1).disassembly_difference_product
+
+        if product:
+            return product
+
+        cls.raise_user_error(
+            "Please set disassembly difference product in production "
+            "configuration"
+        )
 
 
 class Production:
@@ -33,9 +55,7 @@ class Production:
         Change the way explode BOM works to respect disassembly
         """
         pool = Pool()
-        Uom = pool.get('product.uom')
-        Template = pool.get('product.template')
-        Product = pool.get('product.product')
+        Configuration = pool.get('production.configuration')
 
         if not (self.bom and self.product and self.uom):
             return {}
@@ -65,37 +85,57 @@ class Production:
         factor = self.bom.compute_factor(
             self.product, self.quantity or 0, self.uom
         )
-        for input_ in self.bom.outputs:
+
+        # Disassembly inverts outputs and inputs.
+        bom_inputs, bom_outputs = self.bom.outputs, self.bom.inputs
+
+        for input_ in bom_inputs:
             quantity = input_.compute_quantity(factor)
             values = self._explode_move_values(
                 storage_location, self.location, self.company, input_, quantity
             )
             if values:
-                inputs['add'].append((-1, values))
-                quantity = Uom.compute_qty(
-                    input_.uom, quantity, input_.product.default_uom
-                )
                 changes['cost'] += (
                     Decimal(str(quantity)) * input_.product.cost_price
                 )
+                inputs['add'].append((-1, values))
 
-        if hasattr(Product, 'cost_price'):
-            digits = Product.cost_price.digits
-        else:
-            digits = Template.cost_price.digits
-
-        for output in self.bom.inputs:
+        cost_of_outputs = Decimal('0')
+        for output in bom_outputs:
             quantity = output.compute_quantity(factor)
             values = self._explode_move_values(
                 self.location, storage_location, self.company, output, quantity
             )
             if values:
-                values['unit_price'] = Decimal(0)
-                if output.product.id == values.get('product') and quantity:
-                    values['unit_price'] = Decimal(
-                        changes['cost'] / Decimal(str(quantity))
-                    ).quantize(Decimal(str(10 ** -digits[1])))
+                values['unit_price'] = output.product.cost_price
+                cost_of_outputs += (
+                    Decimal(str(quantity)) * output.product.cost_price
+                )
                 outputs['add'].append((-1, values))
+
+        if not self.company.currency.is_zero(changes['cost'] - cost_of_outputs):
+            # There is a cost difference because we cannot set the cost
+            # price of inputs. Add a scrap product in the outputs to
+            # adjust this cost difference.
+            disassembly_difference_product = \
+                Configuration.get_disassembly_difference_product()
+
+            # If it walks like a duck its a duck!
+            # Misuse duck typing to reuse _explode_move_values by sending
+            # an object which looks like bom_io, but is just a named tuple
+            # :)
+            BomIODuck = namedtuple('BomIODuck', ['product', 'uom'])
+            bom_io_duck = BomIODuck(
+                product=disassembly_difference_product,
+                uom=disassembly_difference_product.default_uom
+            )
+
+            values = self._explode_move_values(
+                self.location, storage_location, self.company,
+                bom_io_duck, 1
+            )
+            values['unit_price'] = changes['cost'] - cost_of_outputs
+            outputs['add'].append((-1, values))
 
         return changes
 
