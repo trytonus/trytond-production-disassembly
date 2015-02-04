@@ -27,6 +27,9 @@ class SQLiteTest(Command):
         pass
 
     def run(self):
+        if self.distribution.tests_require:
+            self.distribution.fetch_build_eggs(self.distribution.tests_require)
+
         from trytond.config import CONFIG
         CONFIG['db_type'] = 'sqlite'
         os.environ['DB_NAME'] = ':memory:'
@@ -54,6 +57,9 @@ class PostgresTest(Command):
         pass
 
     def run(self):
+        if self.distribution.tests_require:
+            self.distribution.fetch_build_eggs(self.distribution.tests_require)
+
         from trytond.config import CONFIG
         CONFIG['db_type'] = 'postgresql'
         CONFIG['db_host'] = 'localhost'
@@ -138,6 +144,11 @@ setup(
     """ % (MODULE, MODULE),
     test_suite='tests',
     test_loader='trytond.test_loader:Loader',
+    tests_require=[
+        'proteus >= %s.%s, < %s.%s' % (
+            major_version, minor_version, major_version, minor_version + 1
+        )
+    ],
     cmdclass={
         'test': SQLiteTest,
         'test_on_postgres': PostgresTest,
