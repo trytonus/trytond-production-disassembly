@@ -1,0 +1,14 @@
+<tryton>
+    <data>
+        <record model="ir.ui.view" id="production_view_form">
+            <field name="model">production</field>
+            <field name="inherit" ref="production.production_view_form"/>
+            <field name="name">production_form</field>
+        </record>
+        <record model="ir.ui.view" id="production_configuration_view_form">
+            <field name="model">production.configuration</field>
+            <field name="inherit" ref="production.production_configuration_view_form"/>
+            <field name="name">configuration_form</field>
+        </record>
+    </data>
+</tryton>

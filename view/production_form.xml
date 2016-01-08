@@ -1,0 +1,9 @@
+<data>
+    <xpath expr="//field[@name='bom']" position="after">
+        <label name="disassembly"/>
+        <field name="disassembly"/>
+    </xpath>
+    <xpath expr="//button[@name='cancel']" position="before">
+        <button name="disassemble" string="Disassemble" icon="tryton-refresh"/>
+    </xpath>
+</data>
