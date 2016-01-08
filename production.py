@@ -2,15 +2,14 @@
 from decimal import Decimal
 from collections import namedtuple
 
-from trytond.model import fields
-from trytond.pool import Pool, PoolMeta
+from trytond.model import ModelView, fields
+from trytond.pool import PoolMeta
 from trytond.pyson import Eval
-from trytond.modules.production import production
+from trytond.pool import Pool
 
 
 __metaclass__ = PoolMeta
 __all__ = ['Production', 'Configuration']
-BOM_CHANGES = production.BOM_CHANGES + ['disassembly']
 
 
 class Configuration:
@@ -38,63 +37,58 @@ class Production:
     __name__ = 'production'
 
     disassembly = fields.Boolean(
-        'Disassemble ?', states={
+        'Disassembled?', states={
             'readonly': ~Eval('state').in_(['request', 'draft']),
             'invisible': ~Eval('product'),
-        }, depends=['product']
+        }, readonly=True, depends=['product']
     )
 
-    def explode_bom(self):
-        """
-        Change the way explode BOM works to respect disassembly
-        """
-        pool = Pool()
-        Configuration = pool.get('production.configuration')
+    @classmethod
+    def __setup__(cls):
+        super(Production, cls).__setup__()
+        cls._buttons.update({
+            'disassemble': {
+                'invisible': Eval('state') != 'draft',
+            }
+        })
 
-        if not (self.bom and self.product and self.uom):
-            return {}
+    def _disassemble(self):
+        "Disassembly inverts outputs and inputs"
+        Configuration = Pool().get('production.configuration')
+        Production = Pool().get('production')
 
-        if not self.disassembly:
-            return super(Production, self).explode_bom()
+        if self.disassembly:
+            return
 
-        inputs = {
-            'remove': [r.id for r in self.inputs or []],
-            'add': [],
-        }
-        outputs = {
-            'remove': [r.id for r in self.outputs or []],
-            'add': [],
-        }
-        changes = {
-            'inputs': inputs,
-            'outputs': outputs,
-            'cost': Decimal(0),
-        }
-
-        if self.warehouse:
-            storage_location = self.warehouse.storage_location
-        else:
-            storage_location = None
+        bom_inputs, bom_outputs = self.bom.outputs, self.bom.inputs
+        self.disassembly = True
 
         factor = self.bom.compute_factor(
             self.product, self.quantity or 0, self.uom
         )
 
-        # Disassembly inverts outputs and inputs.
-        bom_inputs, bom_outputs = self.bom.outputs, self.bom.inputs
+        storage_location = self.warehouse.storage_location
 
+        def clean_field_names(data):
+            for key in data.keys():
+                if "." in key:
+                    del data[key]
+            return data
+
+        new_inputs = []
         for input_ in bom_inputs:
             quantity = input_.compute_quantity(factor)
             values = self._explode_move_values(
                 storage_location, self.location, self.company, input_, quantity
             )
             if values:
-                changes['cost'] += (
+                self.cost += (
                     Decimal(str(quantity)) * input_.product.cost_price
                 )
-                inputs['add'].append((-1, values))
+                new_inputs.append(clean_field_names(values))
 
         cost_of_outputs = Decimal('0')
+        new_outputs = []
         for output in bom_outputs:
             quantity = output.compute_quantity(factor)
             values = self._explode_move_values(
@@ -105,9 +99,9 @@ class Production:
                 cost_of_outputs += (
                     Decimal(str(quantity)) * output.product.cost_price
                 )
-                outputs['add'].append((-1, values))
+                new_outputs.append(clean_field_names(values))
 
-        if not self.company.currency.is_zero(changes['cost'] - cost_of_outputs):
+        if not self.company.currency.is_zero(self.cost - cost_of_outputs):
             # There is a cost difference because we cannot set the cost
             # price of inputs. Add a scrap product in the outputs to
             # adjust this cost difference.
@@ -128,27 +122,28 @@ class Production:
                 self.location, storage_location, self.company,
                 bom_io_duck, 1
             )
-            values['unit_price'] = changes['cost'] - cost_of_outputs
-            outputs['add'].append((-1, values))
+            values['unit_price'] = self.cost - cost_of_outputs
+            new_outputs.append(clean_field_names(values))
 
-        return changes
+        inputs_to_delete = map(int, self.inputs)
+        outputs_to_delete = map(int, self.outputs)
+        Production.write([self], {
+            'disassembly': True,
+            'cost': self.cost,
+            'inputs': [
+                ('create', new_inputs),
+                ('remove', inputs_to_delete)
+            ],
+            'outputs': [
+                ('create', new_outputs),
+                ('remove', outputs_to_delete)
+            ]
+        })
 
-    @fields.depends('disassembly')
-    def on_change_product(self):
-        return super(Production, self).on_change_product()
-
-    @fields.depends('disassembly')
-    def on_change_bom(self):
-        return super(Production, self).on_change_bom()
-
-    @fields.depends('disassembly')
-    def on_change_uom(self):
-        return super(Production, self).on_change_uom()
-
-    @fields.depends('disassembly')
-    def on_change_quantity(self):
-        return super(Production, self).on_change_quantity()
-
-    @fields.depends(*BOM_CHANGES)
-    def on_change_disassembly(self):
-        return self.explode_bom()
+    @classmethod
+    @ModelView.button
+    def disassemble(cls, productions):
+        for production in productions:
+            if production.state != "draft":
+                continue
+            production._disassemble()

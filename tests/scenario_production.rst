@@ -217,8 +217,9 @@ Diassemble the production::
     >>> production = Production()
     >>> production.product = product
     >>> production.bom = bom
-    >>> production.disassembly = True
     >>> production.quantity = 2
+    >>> production.save()
+    >>> Production.disassemble([prodcuction], config.context)
     >>> input, = production.inputs
     >>> input.quantity == 2
     True
@@ -226,7 +227,6 @@ Diassemble the production::
     True
     >>> production.cost
     Decimal('40.0')
-    >>> production.save()
     >>> Production.wait([production.id], config.context)
     >>> production.state
     u'waiting'

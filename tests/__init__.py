@@ -13,9 +13,6 @@ def suite():
     Define suite
     """
     test_suite = trytond.tests.test_tryton.suite()
-    test_suite.addTests([
-        unittest.TestLoader().loadTestsFromTestCase(TestViewsDepends),
-    ])
     if DB_NAME == ':memory:':
         test_suite.addTests([
             doctest.DocFileSuite(
