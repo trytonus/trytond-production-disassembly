@@ -22,10 +22,10 @@ Create database::
 
 Install production disassembly Module::
 
-    >>> Module = Model.get('ir.module.module')
+    >>> Module = Model.get('ir.module')
     >>> modules = Module.find([('name', '=', 'production_disassembly')])
     >>> Module.install([x.id for x in modules], config.context)
-    >>> Wizard('ir.module.module.install_upgrade').execute('upgrade')
+    >>> Wizard('ir.module.install_upgrade').execute('upgrade')
 
 Create company::
 
@@ -177,7 +177,7 @@ Make a production::
     >>> output.quantity == 2
     True
     >>> production.cost
-    Decimal('25.0')
+    Decimal('25.0000')
     >>> production.save()
     >>> Production.wait([production.id], config.context)
     >>> production.state
@@ -219,14 +219,14 @@ Diassemble the production::
     >>> production.bom = bom
     >>> production.quantity = 2
     >>> production.save()
-    >>> Production.disassemble([prodcuction], config.context)
+    >>> Production.disassemble([production.id], config.context)
     >>> input, = production.inputs
     >>> input.quantity == 2
     True
     >>> sorted([o.quantity for o in production.outputs]) == [1, 10, 300]
     True
     >>> production.cost
-    Decimal('40.0')
+    Decimal('40.0000')
     >>> Production.wait([production.id], config.context)
     >>> production.state
     u'waiting'
