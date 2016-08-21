@@ -55,7 +55,6 @@ class Production:
     def _disassemble(self):
         "Disassembly inverts outputs and inputs"
         Configuration = Pool().get('production.configuration')
-        Production = Pool().get('production')
 
         if self.disassembly:
             return
@@ -69,39 +68,34 @@ class Production:
 
         storage_location = self.warehouse.storage_location
 
-        def clean_field_names(data):
-            for key in data.keys():
-                if "." in key:
-                    del data[key]
-            return data
-
+        production_cost = Decimal('0')
         new_inputs = []
         for input_ in bom_inputs:
             quantity = input_.compute_quantity(factor)
-            values = self._explode_move_values(
+            move = self._explode_move_values(
                 storage_location, self.location, self.company, input_, quantity
             )
-            if values:
-                self.cost += (
+            if move:
+                production_cost += (
                     Decimal(str(quantity)) * input_.product.cost_price
                 )
-                new_inputs.append(clean_field_names(values))
+                new_inputs.append(move)
 
         cost_of_outputs = Decimal('0')
         new_outputs = []
         for output in bom_outputs:
             quantity = output.compute_quantity(factor)
-            values = self._explode_move_values(
+            move = self._explode_move_values(
                 self.location, storage_location, self.company, output, quantity
             )
-            if values:
-                values['unit_price'] = output.product.cost_price
+            if move:
+                move.unit_price = output.product.cost_price
                 cost_of_outputs += (
                     Decimal(str(quantity)) * output.product.cost_price
                 )
-                new_outputs.append(clean_field_names(values))
+                new_outputs.append(move)
 
-        if not self.company.currency.is_zero(self.cost - cost_of_outputs):
+        if not self.company.currency.is_zero(production_cost - cost_of_outputs):
             # There is a cost difference because we cannot set the cost
             # price of inputs. Add a scrap product in the outputs to
             # adjust this cost difference.
@@ -118,27 +112,17 @@ class Production:
                 uom=disassembly_difference_product.default_uom
             )
 
-            values = self._explode_move_values(
+            move = self._explode_move_values(
                 self.location, storage_location, self.company,
                 bom_io_duck, 1
             )
-            values['unit_price'] = self.cost - cost_of_outputs
-            new_outputs.append(clean_field_names(values))
+            move.unit_price = production_cost - cost_of_outputs
+            new_outputs.append(move)
 
-        inputs_to_delete = map(int, self.inputs)
-        outputs_to_delete = map(int, self.outputs)
-        Production.write([self], {
-            'disassembly': True,
-            'cost': self.cost,
-            'inputs': [
-                ('create', new_inputs),
-                ('remove', inputs_to_delete)
-            ],
-            'outputs': [
-                ('create', new_outputs),
-                ('remove', outputs_to_delete)
-            ]
-        })
+        self.disassembly = True
+        self.inputs = new_inputs
+        self.outputs = new_outputs
+        self.save()
 
     @classmethod
     @ModelView.button
