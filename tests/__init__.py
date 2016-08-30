@@ -5,8 +5,6 @@ import doctest
 import trytond.tests.test_tryton
 from trytond.tests.test_tryton import DB_NAME, doctest_setup, doctest_teardown
 
-from tests.test_views_depends import TestViewsDepends
-
 
 def suite():
     """
